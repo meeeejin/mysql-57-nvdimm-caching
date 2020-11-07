@@ -5056,7 +5056,7 @@ btr_cur_del_mark_set_sec_rec(
 	block = btr_cur_get_block(cursor);
 	rec = btr_cur_get_rec(cursor);
 
-    err = lock_sec_rec_modify_check_and_lock(flags,
+  err = lock_sec_rec_modify_check_and_lock(flags,
 						 btr_cur_get_block(cursor),
 						 rec, cursor->index, thr, mtr);
 	if (err != DB_SUCCESS) {

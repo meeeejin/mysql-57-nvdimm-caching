@@ -51,4 +51,3 @@ pm_mmap_buf_write(unsigned long len, void* buf) {
 	mmap_buf_sys->cur_offset += len;
 }
 
-

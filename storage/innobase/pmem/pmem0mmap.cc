@@ -357,10 +357,12 @@ ssize_t pm_mmap_mtrlogbuf_write(
 		// At this point, we can remove mtr log for this undo page
 		if (state >= TRX_UNDO_CACHED) {
 			ut_ad(state != TRX_UNDO_PREPARED);
+
 			pm_mmap_log_commit(cur_space, cur_page, offset+n);
 		} 
 	}
 	
+
   // persistent barrier
   flush_cache(gb_pm_mmap+org_offset, (size_t)(PMEM_MMAP_MTRLOG_HDR_SIZE + n));
 
@@ -402,6 +404,7 @@ void pm_mmap_mtrlogbuf_commit(unsigned char* rec, unsigned long cur_rec_size ,ul
 	// For current mtr logging version, we jsut ignore this function
 	//return;
 	flush_cache(rec, cur_rec_size);
+
 /*
 	if (mmap_mtrlogbuf == NULL) return;
 	

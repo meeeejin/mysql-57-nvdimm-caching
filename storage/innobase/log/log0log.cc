@@ -1486,6 +1486,12 @@ bool
 log_preflush_pool_modified_pages(
 	lsn_t			new_oldest)
 {
+/*#ifdef UNIV_NVDIMM_CACHE
+    if (srv_use_nvdimm_buf) {
+        return(true);    
+    }
+#endif*/ /* UNIV_NVDIMM_CACHE */
+
 	bool	success;
 
 	if (recv_recovery_on) {
@@ -2205,6 +2211,28 @@ loop:
 #ifdef UNIV_NVDIMM_CACHE	
     count = 0;
 	while (buf_nvdimm_page_cleaner_is_active) {
+		++count;
+		os_thread_sleep(100000);
+		if (srv_print_verbose_log && count > 600) {
+			ib::info() << "Waiting for NVDIMM page_cleaner to"
+				" finish flushing of buffer pool";
+			count = 0;
+		}
+	}
+    
+    count = 0;
+	while (buf_nvdimm_stock_page_cleaner_is_active) {
+		++count;
+		os_thread_sleep(100000);
+		if (srv_print_verbose_log && count > 600) {
+			ib::info() << "Waiting for NVDIMM page_cleaner to"
+				" finish flushing of buffer pool";
+			count = 0;
+		}
+	}
+
+    count = 0;
+	while (buf_nvdimm_count_page_cleaner_is_active) {
 		++count;
 		os_thread_sleep(100000);
 		if (srv_print_verbose_log && count > 600) {

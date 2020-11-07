@@ -2556,12 +2556,28 @@ row_ins_clust_index_entry_low(
 
 		if (err != DB_SUCCESS) {
 err_exit:
+
+
+/*#ifdef UNIV_NVDIMM_CACHE
+    if (index->space == 28) {
+      mtr_commit_no_nvm(&mtr);
+      goto func_exit;
+    }
+#endif*/
 			mtr_commit(&mtr);
 			goto func_exit;
 		}
 	}
 
 	if (dup_chk_only) {
+
+/*#ifdef UNIV_NVDIMM_CACHE
+    if (index->space == 28) {
+      mtr_commit_no_nvm(&mtr);
+      goto func_exit;
+    }
+#endif*/
+
 		mtr_commit(&mtr);
 		goto func_exit;
 	}
@@ -2592,7 +2608,17 @@ err_exit:
 					     index, offsets);
 		}
 
+#ifdef UNIV_NVDIMM_CACHE
+  /*  if (index->space == 28) {
+      mtr_commit_no_nvm(&mtr);
+    } else {
+    */  mtr_commit(&mtr);
+    //}
+#else
 		mtr_commit(&mtr);
+#endif
+
+//    mtr_commit(&mtr);
 		mem_heap_free(entry_heap);
 	} else {
 		rec_t*	insert_rec;
@@ -2630,7 +2656,17 @@ err_exit:
 
 		if (big_rec != NULL) {
 
-            mtr_commit(&mtr);
+#ifdef UNIV_NVDIMM_CACHE
+     /* if (index->space == 28) {
+        mtr_commit_no_nvm(&mtr);
+      } else {*/
+        mtr_commit(&mtr);
+      //}
+#else
+		  mtr_commit(&mtr);
+#endif
+
+//      mtr_commit(&mtr);
 			/* Online table rebuild could read (and
 			ignore) the incomplete record at this point.
 			If online rebuild is in progress, the
@@ -2651,7 +2687,19 @@ err_exit:
 				row_log_table_insert(
 					insert_rec, entry, index, offsets);
 			}
-            mtr_commit(&mtr);
+
+//			mtr_commit(&mtr);
+
+#ifdef UNIV_NVDIMM_CACHE
+     /* if (index->space == 28) {
+        mtr_commit_no_nvm(&mtr);
+      } else {*/
+        mtr_commit(&mtr);
+      //}
+#else
+		  mtr_commit(&mtr);
+#endif
+
 		}
 	}
 

@@ -23,6 +23,7 @@ elif [ "$1" = "--origin-monitor" ]; then
     BUILD_FLAGS="-DUNIV_FLUSH_MONITOR"
 elif [ "$1" = "--nc" ]; then
     # Cache hot LB pages
+    #BUILD_FLAGS="-DUNIV_NVDIMM_CACHE"
     BUILD_FLAGS="-DUNIV_NVDIMM_CACHE -DUNIV_LOG_HEADER"
 elif [ "$1" = "--nc-monitor" ]; then
     # Cache hot LB pages with mtr-logging/monitoring enabled

@@ -1039,7 +1039,6 @@ trx_lists_init_at_db_start(void)
 
 			trx_resurrect_table_locks(
 				trx, &trx->rsegs.m_redo, undo);
-      
 		}
 
 		/* Ressurrect transactions that were doing updates. */

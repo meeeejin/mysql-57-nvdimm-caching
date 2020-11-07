@@ -1405,7 +1405,11 @@ loop:
             os_event_set(buf_flush_event);
         } else if (buf_pool->instance_no == srv_buf_pool_instances) {
             os_event_set(buf_flush_nvdimm_event);
-        } 
+        } else if (buf_pool->instance_no == srv_buf_pool_instances + 1) {
+            os_event_set(buf_flush_nvdimm_stock_event);
+        } else {
+            os_event_set(buf_flush_nvdimm_count_event);
+        }
 #else
         os_event_set(buf_flush_event);
 #endif /* UNIV_NVDIMM_CACHE */
@@ -2544,6 +2548,14 @@ nvdimm_buf_LRU_old_ratio_update(
 
     /* FIXME: fixed buf_pool index*/
     buf_pool = &nvdimm_buf_pool_ptr[0];
+	new_ratio = buf_LRU_old_ratio_update_instance(
+			buf_pool, old_pct, adjust);
+
+    buf_pool = &nvdimm_buf_pool_ptr[1];
+	new_ratio = buf_LRU_old_ratio_update_instance(
+			buf_pool, old_pct, adjust);
+
+    buf_pool = &nvdimm_buf_pool_ptr[2];
 	new_ratio = buf_LRU_old_ratio_update_instance(
 			buf_pool, old_pct, adjust);
 

@@ -46,7 +46,7 @@ innodb_page_size=4KB
 innodb_file_per_table=1
 
 #buffer settings
-innodb_buffer_pool_size=6G
+innodb_buffer_pool_size=5G
 innodb_buffer_pool_instances=8
 innodb_max_dirty_pages_pct_lwm=0
 
@@ -55,7 +55,7 @@ log_error_verbosity=3
 innodb_page_cleaners=8
 
 #transaction log settings
-innodb_log_file_size=2G
+innodb_log_file_size=300M
 innodb_log_files_in_group=3
 
 # 0:every 1 seconds, 1:fsync on commits, 2:writes on commits

@@ -176,6 +176,22 @@ void pm_mmap_recv_flush_buffer() {
 		unsigned long space_id = mach_read_from_4(buf + FIL_PAGE_SPACE_ID);
 		unsigned long page_no = mach_read_from_4(buf + FIL_PAGE_OFFSET);  			
 		
+		if (space_id == 28 || space_id == 30) {
+			//&& page_no == 0)) {
+			// perform fil_io
+			IORequest write_request(IORequest::WRITE);
+			write_request.disable_compression(); // stil needed?
+
+			// similar process, partila updates! 
+			write_request.dblwr_recover();
+			fprintf(stderr, "[JONGQ] perform fil_io write!!!\n");
+			int check = 0;
+			check = fil_io(write_request, true, page_id_t(space_id, page_no), 
+					univ_page_size, 0 ,univ_page_size.physical(), (void*) buf, NULL);
+
+			fprintf(stderr, "[JONGQ] fil_io check: %d!\n", check);
+		}
+
 		cur_offset += (4096*1024);
 		free(buf);
 	}

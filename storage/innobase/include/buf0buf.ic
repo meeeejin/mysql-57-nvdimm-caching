@@ -109,7 +109,11 @@ buf_pool_from_bpage(
         return(&buf_pool_ptr[i]);
     } else if (i == srv_buf_pool_instances) {
         return(&nvdimm_buf_pool_ptr[0]);
-    }    
+    } else if (i == srv_buf_pool_instances + 1){ 
+        return(&nvdimm_buf_pool_ptr[1]);
+    } else {
+        return(&nvdimm_buf_pool_ptr[2]);
+    }
 #else
     ut_ad(i < srv_buf_pool_instances);
     return(&buf_pool_ptr[i]);
@@ -1025,8 +1029,17 @@ buf_pool_get(
 	const page_id_t&	page_id)
 {
 #ifdef UNIV_NVDIMM_CACHE
-    if (buf_page_hash_get_low(&nvdimm_buf_pool_ptr[0], page_id)) {
+    if (page_id.space() == 51
+        && buf_page_hash_get_low(&nvdimm_buf_pool_ptr[0], page_id)) {
         return(&nvdimm_buf_pool_ptr[0]);
+    }
+    else if (page_id.space() == 50
+        && buf_page_hash_get_low(&nvdimm_buf_pool_ptr[2], page_id)) {
+        return(&nvdimm_buf_pool_ptr[2]);
+    }
+    else if ((34 <= page_id.space() && page_id.space() < 50)
+        && buf_page_hash_get_low(&nvdimm_buf_pool_ptr[1], page_id)) {
+        return(&nvdimm_buf_pool_ptr[1]);
     }
     
     /* 2log of BUF_READ_AHEAD_AREA (64) */

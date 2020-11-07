@@ -438,10 +438,10 @@ public:
 	void finish_write(ulint len);
 
 #ifdef UNIV_NVDIMM_CACHE
-    /** Write the mtr log (undo + redo of undo) record,and release the resorces */
-    void execute_nvm();
-    void execute_no_nvm();
-    /** Append the redo log records to the NVDIMM mtr log buffer.
+  /** Write the mtr log (undo + redo of undo) record,and release the resorces */
+  void execute_nvm();
+	void execute_no_nvm();
+  /** Append the redo log records to the NVDIMM mtr log buffer.
 	@param[in]	len	number of bytes to write */
 	void finish_write_nvm(ulint len);
 #endif
@@ -741,6 +741,23 @@ void mtr_t::commit_nvm() {
 // just release for row_purge_remove_clust_if_poss_low() function 
 void mtr_t::commit_no_nvm() {
     commit();
+/*	ut_ad(is_active());
+  ut_ad(!is_inside_ibuf());
+  ut_ad(m_impl.m_magic_n == MTR_MAGIC_N);
+  m_impl.m_state = MTR_STATE_COMMITTING;
+  // jhpark: release the mtr structure 
+  Command cmd(this);
+	if (m_impl.m_modifications
+	    && (m_impl.m_n_log_recs > 0
+		|| m_impl.m_log_mode == MTR_LOG_NO_REDO)) {
+    cmd.execute_no_nvm();
+  } else {
+    cmd.release_all();
+    cmd.release_resources();
+  }
+*/
+  //cmd.release_all();
+  //cmd.release_resources();
 }
 
 #endif /* UNIV_NVDIMM_CACHE */
@@ -1052,10 +1069,10 @@ mtr_t::Command::finish_write_nvm(
 	ut_ad(len > 0);
 
 	/* Open the database log for log_write_low */
-    m_start_lsn = log_sys->lsn;
-    mtr_nvm_write_log_t	write_log;
-    m_impl->m_log.for_each_block(write_log);
-    m_end_lsn = log_sys->lsn; 
+  m_start_lsn = log_sys->lsn;
+	mtr_nvm_write_log_t	write_log;
+	m_impl->m_log.for_each_block(write_log);
+  m_end_lsn = log_sys->lsn; 
 }
 #endif /* UNIV_NVDIMM_CACHE */
 

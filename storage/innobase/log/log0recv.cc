@@ -2742,10 +2742,12 @@ loop:
 	}
 
 	if (has_printed) {
+
 		fprintf(stderr, "\n");
 	}
 
 	if (!allow_ibuf) {
+
 		/* Flush all the file pages to disk and invalidate them in
 		the buffer pool */
 

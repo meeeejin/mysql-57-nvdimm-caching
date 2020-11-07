@@ -78,6 +78,9 @@ my_bool  srv_numa_interleave = FALSE;
 #ifdef UNIV_NVDIMM_CACHE
 #include "buf0nvdimm.h"
 ulint nvdimm_pc_threshold;
+bool wakeup_nvdimm_cleaner = FALSE;
+bool wakeup_nvdimm_stock_cleaner = FALSE;
+bool wakeup_nvdimm_count_cleaner = FALSE;
 /** The NVDIMM buffer pools of the database */
 buf_pool_t *nvdimm_buf_pool_ptr;
 
@@ -4586,7 +4589,15 @@ loop:
 #ifdef UNIV_NVDIMM_CACHE
         /* Buffer Hit */
         if (buf_pool->instance_no >= srv_buf_pool_instances) {
-            srv_stats.nvdimm_pages_read.inc();
+            if (page_id.space() == 51) {
+                srv_stats.nvdimm_pages_read_ol.inc();
+            }
+            else if (page_id.space() == 50) {
+                srv_stats.nvdimm_pages_read_od.inc();
+            }
+            else {
+                srv_stats.nvdimm_pages_read_st.inc();
+            }
         }
 #endif /* UNIV_NVDIMM_CACHE */
 	}
@@ -5490,7 +5501,15 @@ buf_page_init_for_read(
     
 #ifdef UNIV_NVDIMM_CACHE
     if (mode == BUF_MOVE_TO_NVDIMM) {
-        buf_pool = &nvdimm_buf_pool_ptr[0];
+        if (page_id.space() == 51) {
+            buf_pool = &nvdimm_buf_pool_ptr[0];
+        }         
+        else if (page_id.space() == 50) {
+            buf_pool = &nvdimm_buf_pool_ptr[2];
+        }   
+        else { /* Stock */
+            buf_pool = &nvdimm_buf_pool_ptr[1];
+        }
     } else {
         buf_pool = buf_pool_get(page_id);
     }
@@ -6246,7 +6265,37 @@ corrupt:
 
 #ifdef UNIV_NVDIMM_CACHE
         if (bpage->cached_in_nvdimm) {
-            srv_stats.nvdimm_pages_stored.inc();
+            if (bpage->id.space() == 51) {
+                srv_stats.nvdimm_pages_stored_ol.inc();
+            }
+            if (bpage->id.space() == 50) {
+                srv_stats.nvdimm_pages_stored_od.inc();
+            }
+            else {
+                srv_stats.nvdimm_pages_stored_st.inc();
+            }
+       /* 
+            ulint remains = UT_LIST_GET_LEN(buf_pool->free);
+            
+            if (!wakeup_nvdimm_cleaner
+                && buf_pool->instance_no == 8
+                && remains < nvdimm_pc_threshold) {
+                os_event_set(buf_flush_nvdimm_event);
+                wakeup_nvdimm_cleaner = TRUE;
+            }
+
+            if (!wakeup_nvdimm_stock_cleaner
+                && buf_pool->instance_no == 9
+                && remains < nvdimm_pc_threshold) {
+                os_event_set(buf_flush_nvdimm_stock_event);
+                wakeup_nvdimm_stock_cleaner = TRUE;
+            }
+            if (!wakeup_nvdimm_count_cleaner
+                && buf_pool->instance_no == 10
+                && remains < nvdimm_pc_threshold) {
+                os_event_set(buf_flush_nvdimm_count_event);
+                wakeup_nvdimm_count_cleaner = TRUE;
+            }*/
         }
 #endif /* UNIV_NVDIMM_CACHE */
 		
@@ -6269,7 +6318,13 @@ corrupt:
 
 #ifdef UNIV_NVDIMM_CACHE
         if (bpage->cached_in_nvdimm) {
-            srv_stats.nvdimm_pages_written.inc();
+            if (bpage->id.space() == 51) {
+                srv_stats.nvdimm_pages_written_ol.inc();
+            } else if (bpage->id.space() == 50) {
+                srv_stats.nvdimm_pages_written_od.inc();
+            } else {
+                srv_stats.nvdimm_pages_written_st.inc();
+            }
         }
 #endif /* UNIV_NVDIMM_CACHE */
 
@@ -7261,19 +7316,46 @@ buf_print_total_nvdimm_info(
 	FILE*		file)		    /*!< in/out: buffer where to print */
 {
     fprintf(file,
-        "---The number of pages stored in NVDIMM buffer = "
-        ULINTPF "\n",
-        (ulint)srv_stats.nvdimm_pages_stored);
+        "---The number of pages stored in NVDIMM buffer\n"
+        "New-Orders      " ULINTPF
+        "\n"
+        "Order-Line      " ULINTPF
+        "\n"
+        "Orders          " ULINTPF
+        "\n"
+        "Stock           " ULINTPF "\n",
+        (ulint)srv_stats.nvdimm_pages_stored_no,
+        (ulint)srv_stats.nvdimm_pages_stored_ol,
+        (ulint)srv_stats.nvdimm_pages_stored_od,
+        (ulint)srv_stats.nvdimm_pages_stored_st);
 
     fprintf(file,
-        "---The number of pages read in NVDIMM buffer = "
-        ULINTPF "\n",
-        (ulint)srv_stats.nvdimm_pages_read);
+        "---The number of pages read in NVDIMM buffer\n"
+        "New-Orders      " ULINTPF
+        "\n"
+        "Order-Line      " ULINTPF
+        "\n"
+        "Orders          " ULINTPF
+        "\n"
+        "Stock           " ULINTPF "\n",
+        (ulint)srv_stats.nvdimm_pages_read_no,
+        (ulint)srv_stats.nvdimm_pages_read_ol,
+        (ulint)srv_stats.nvdimm_pages_read_od,
+        (ulint)srv_stats.nvdimm_pages_read_st);
 
     fprintf(file,
-        "---The number of pages written in NVDIMM buffer = "
-        ULINTPF "\n",
-        (ulint)srv_stats.nvdimm_pages_written);
+        "---The number of pages written in NVDIMM buffer\n"
+        "New-Orders      " ULINTPF
+        "\n"
+        "Order-Line      " ULINTPF
+        "\n"
+        "Orders          " ULINTPF
+        "\n"
+        "Stock           " ULINTPF "\n",
+        (ulint)srv_stats.nvdimm_pages_written_no,
+        (ulint)srv_stats.nvdimm_pages_written_ol,
+        (ulint)srv_stats.nvdimm_pages_written_od,
+        (ulint)srv_stats.nvdimm_pages_written_st);
 }
 #endif /* UNIV_NVDIMM_CACHE */
 
