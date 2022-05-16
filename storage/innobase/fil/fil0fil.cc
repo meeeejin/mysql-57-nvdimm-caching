@@ -907,7 +907,8 @@ add_size:
 	}
 
     /* mijin */
-    fprintf(stderr, "%s = %lu\n", node->name, space->id);
+    // HOT DEBUG 2
+    //fprintf(stderr, "%s = %lu\n", node->name, space->id);
 
 	return(true);
 }

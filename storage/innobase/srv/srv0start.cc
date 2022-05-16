@@ -109,6 +109,10 @@ Created 2/16/1996 Heikki Tuuri
 #include "pmem_mmap_obj.h" 
 extern unsigned char* gb_pm_mmap;
 char  PMEM_FILE_PATH [PMEM_MMAP_MAX_FILE_NAME_LENGTH];
+pfs_os_file_t gb_pm_dwb_file;
+ticks start_time=0;
+ticks end_time=0;
+unsigned recovery_time=0;
 #endif /* UNIV_NVDIMM_CACHE */
 
 #ifdef HAVE_LZO1X
@@ -1473,6 +1477,11 @@ innobase_start_or_create_for_mysql(void)
 	size_t		dirnamelen;
 	unsigned	i = 0;
 
+  // HOT_DEBUG RECOVERY
+#ifdef UNIV_NVDIMM_CACHE
+  start_time = getticks();
+#endif
+
 	/* Reset the start state. */
 	srv_start_state = SRV_START_STATE_NONE;
 
@@ -1493,7 +1502,7 @@ innobase_start_or_create_for_mysql(void)
 
 #ifdef UNIV_NVDIMM_CACHE
   sprintf(PMEM_FILE_PATH, "%s/%s", srv_nvdimm_home_dir, NVDIMM_MMAP_FILE_NAME);
-  size_t srv_pmem_pool_size = 3 * 1024;
+  size_t srv_pmem_pool_size = 12 * 1024;
   uint64_t pool_size = srv_pmem_pool_size * 1024 * 1024UL;
   gb_pm_mmap = pm_mmap_create(PMEM_FILE_PATH, pool_size);
   if (!gb_pm_mmap) {
@@ -1501,7 +1510,7 @@ innobase_start_or_create_for_mysql(void)
     assert(gb_pm_mmap);
   }
 
-	if (!is_pmem_recv) {
+	//if (!is_pmem_recv) {
 		// for debugging : chagne the mtr log region size
 		// original : 1024*1024*1024*8UL (8GB)
 		pm_mmap_mtrlogbuf_init(1024*1024*1024*1UL); // 1GB for test
@@ -1509,9 +1518,7 @@ innobase_start_or_create_for_mysql(void)
 		// TODO(jhpark): change buffer pool recovery policy
 		// buffer retion initialization (2GB)
 		pm_mmap_buf_init(1024*1024*1024*2UL);
-	}
-	
-	//pm_mmap_buf_init(1024*1024*1024*3UL);
+	//}
 
 #endif /* UNIV_NVDIMM_CACHE */
 
@@ -2301,6 +2308,22 @@ files_checked:
 
 		fprintf(stderr, "[JONGQ] ---- scan_and_parse log file finished\n");
 
+#ifdef UNIV_NVDIMM_CACHE
+    if (is_pmem_recv) {
+      nc_recv_analysis();
+    }
+    // (jhpark): ignore now
+    /*
+    else {
+      // HOT DEBUG
+     pmem_lsn = flushed_lsn;
+     nc_save_pmem_lsn();
+    }
+    */
+#endif
+
+
+
 		/* We always try to do a recovery, even if the database had
 		been shut down normally: this is the normal startup path */
 
@@ -2332,31 +2355,13 @@ files_checked:
 			return(srv_init_abort(DB_ERROR));
 		}
 
-#ifdef UNIV_NVDIMM_CACHE		
-		fprintf(stderr, "[JONGQ] ---- pass force recovery!\n"); 
-		
-// TODO(jhpark): NC recovery check !!!!!
-		if (is_pmem_recv)  {
-			PMEMMMAP_INFO_PRINT("YES!!!! recovery!!!! start_offset: %lu end_offset: %lu\n"
-				,pmem_recv_offset, pmem_recv_size);
-//			pm_mmap_recv(pmem_recv_offset, pmem_recv_size);
-//			PMEMMMAP_INFO_PRINT("UNDO page is recoverd !!!!\n");
-//			//pm_mmap_recv_flush_buffer();
-		}
-#endif /* UNIV_NVDIMM_CACHE */
 
 		purge_queue = trx_sys_init_at_db_start();
-
-		fprintf(stderr, "[JONGQ] ---- trx_sys_init_at_db_start finished!\n");
 
 		if (srv_force_recovery < SRV_FORCE_NO_LOG_REDO) {
 			/* Apply the hashed log records to the
 			respective file pages, for the last batch of
 			recv_group_scan_log_recs(). */
-
-#ifdef UNIV_NVDIMM_CACHE		
-			PMEMMMAP_INFO_PRINT("JONGQ recovery-4-1\n");
-#endif /* UNIV_NVDIMM_CACHE */
 
 			recv_apply_hashed_log_recs(TRUE);
 			DBUG_PRINT("ib_log", ("apply completed"));
@@ -2365,10 +2370,6 @@ files_checked:
 				trx_sys_print_mysql_binlog_offset();
 			}
 		}
-
-#ifdef UNIV_NVDIMM_CACHE		
-		 PMEMMMAP_INFO_PRINT("JONGQ recovery-5\n"); 
-#endif /* UNIV_NVDIMM_CACHE */
 
 		if (recv_sys->found_corrupt_log) {
 			ib::warn()
@@ -2579,9 +2580,6 @@ files_checked:
 	variable srv_available_undo_logs. The number of rsegs to use can
 	be set using the dynamic global variable srv_rollback_segments. */
 	
-	// debug
-	fprintf(stderr, "[JONGQ] initialize undo log lists\n");	
-
 	srv_available_undo_logs = trx_sys_create_rsegs(
 		srv_undo_tablespaces, srv_rollback_segments, srv_tmp_undo_logs);
 

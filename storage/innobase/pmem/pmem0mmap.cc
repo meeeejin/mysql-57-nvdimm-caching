@@ -18,15 +18,34 @@
 unsigned char* gb_pm_mmap;
 int gb_pm_mmap_fd;
 PMEM_MMAP_MTRLOG_BUF* mmap_mtrlogbuf = NULL;
+// HOT DEBUG
+uint64_t pmem_lsn;
+uint64_t pmem_page_offset;
 
 // recovery
 bool is_pmem_recv = false;
 uint64_t pmem_recv_offset = 0;
 uint64_t pmem_recv_size = 0;
-
+std::map<std::pair<uint64_t,uint64_t> ,std::vector<uint64_t> > pmem_nc_buffer_map;
+std::map<std::pair<uint64_t,uint64_t> , std::vector<uint64_t> > pmem_nc_page_map;
+std::map<std::pair<uint64_t,uint64_t> , uint64_t > pmem_nc_page_offset_map;
+std::queue<uint64_t> pmem_nc_page_offset_list;
 
 unsigned char* pm_mmap_create(const char* path, const uint64_t pool_size) {
-  
+ 
+#ifdef UNIV_NVDIMM_CACHE
+  if (srv_use_nvdimm_dwb) {
+    ib::info() << "INODB DWB ON!";
+  }
+#endif
+
+  // (jhpark): initialize the pmem_page_offset_list here
+  // TODO(xxx): use server variable
+  for (int i=0; i< (1024*1024*1024/4096); i++) {
+    pmem_nc_page_offset_list.push(i*4096);
+  }
+  //
+
   if (access(path, F_OK) != 0) {
     gb_pm_mmap_fd = open(path, O_RDWR | O_CREAT, 0777); 
     if (gb_pm_mmap_fd < 0) {
@@ -47,7 +66,7 @@ unsigned char* pm_mmap_create(const char* path, const uint64_t pool_size) {
 
   } else {
     // TODO(jhaprk) add the recovery logic
-    PMEMMMAP_INFO_PRINT("Start mtr recvoery process\n");
+    PMEMMMAP_INFO_PRINT("Start NC recvoery process\n");
     gb_pm_mmap_fd = open(path, O_RDWR, 0777);
 
     if (gb_pm_mmap_fd < 0) {
@@ -60,52 +79,9 @@ unsigned char* pm_mmap_create(const char* path, const uint64_t pool_size) {
       PMEMMMAP_ERROR_PRINT("pm_mmap mmap() faild recovery failed\n");
     }
 
-		// get file construct
-		PMEM_MMAP_MTRLOGFILE_HDR* recv_mmap_mtrlog_fil_hdr = (PMEM_MMAP_MTRLOGFILE_HDR*) 
-																													malloc(PMEM_MMAP_LOGFILE_HEADER_SZ);
-		pm_mmap_read_logfile_header(recv_mmap_mtrlog_fil_hdr);	
-			
-		// debug
-		fprintf(stderr, "[check] size: %lu, lsn: %lu, ckpt_lsn: %lu, ckpt_offset: %lu\n",
-						recv_mmap_mtrlog_fil_hdr->size, recv_mmap_mtrlog_fil_hdr->flushed_lsn, 
-						recv_mmap_mtrlog_fil_hdr->ckpt_lsn, recv_mmap_mtrlog_fil_hdr->ckpt_offset);
-
-		// recvoery check
-    PMEM_MMAP_MTRLOG_HDR* recv_mmap_mtrlog_hdr = (PMEM_MMAP_MTRLOG_HDR*) malloc(PMEM_MMAP_MTRLOG_HDR_SIZE);
-    memcpy(recv_mmap_mtrlog_hdr, gb_pm_mmap+recv_mmap_mtrlog_fil_hdr->ckpt_offset, PMEM_MMAP_MTRLOG_HDR_SIZE);
-		
-		if (recv_mmap_mtrlog_fil_hdr->size == PMEM_MMAP_MTR_FIL_HDR_SIZE 
-				|| recv_mmap_mtrlog_hdr->need_recv == false) {
-			PMEMMMAP_INFO_PRINT("Normal Shutdown case, don't need to recveory; Recovery process is terminated\n");
-		} else {
-			// TODO(jhpark): real recovery process
-			is_pmem_recv = true;
-			pmem_recv_offset = pm_mmap_recv_check(recv_mmap_mtrlog_fil_hdr);
-			pmem_recv_size = recv_mmap_mtrlog_fil_hdr->size;
-			
-			// jhpark: check buffer!!!!!
-			// pm_mmap_recv_flush_buffer();
-
-			PMEMMMAP_INFO_PRINT("recovery offset: %lu\n", pmem_recv_offset);
-		} 
-
-		// step1. allocate mtr_recv_sys
-		// step2. 1) get header infor mation and 2) get info from mtr log region
-		// step3. reconstruct undo page
-
-    // Get header information from exsiting nvdimm log file
-    //size_t recv_prev_offset = recv_mmap_mtrlog_hdr->prev;
-    //memset(recv_mmap_mtrlog_hdr, 0x00, PMEM_MMAP_MTRLOG_HDR_SIZE);
-    //memcpy(recv_mmap_mtrlog_hdr, gb_pm_mmap+recv_prev_offset, PMEM_MMAP_MTRLOG_HDR_SIZE);
-
-    // debug
-    //fprintf(stderr, "size: %lu\n", recv_size);
-    //fprintf(stderr, "len: %lu\n", recv_mmap_mtrlog_hdr->len);
-    //fprintf(stderr, "lsn: %lu\n", recv_mmap_mtrlog_hdr->lsn);
-    //fprintf(stderr, "need_recovery: %d\n", recv_mmap_mtrlog_hdr->need_recv);
-    
-		free(recv_mmap_mtrlog_fil_hdr);
-    free(recv_mmap_mtrlog_hdr);
+    // TODO(jhpark): fix
+    //memcpy(gb_pm_mmap + (6*1024*1024*1024UL), gb_pm_mmap + (1*1024*1024*1024UL), (8UL*147324928));
+    is_pmem_recv = true;
   }
 
   // Force to set NVIMMM
@@ -396,91 +372,30 @@ ssize_t pm_mmap_mtrlogbuf_write(
   return ret;
 }
 
-// commit mtr log 
-void pm_mmap_mtrlogbuf_commit(unsigned char* rec, unsigned long cur_rec_size ,ulint space, ulint page_no) {
-	// TODO(jhaprk): Keep page modification finish log for recovery	
-	// For current mtr logging version, we jsut ignore this function
-	//return;
-	flush_cache(rec, cur_rec_size);
-/*
-	if (mmap_mtrlogbuf == NULL) return;
-	
-	//fprintf(stderr, "[mtr-commit] space: %lu page_no: %lu\n", space, page_no);
-	// 1. check current cur_offset
-	size_t cur_offset = mmap_mtrlogbuf->cur_offset;
-	// 2. check current ckpt_offset
-	size_t ckpt_offset = mmap_mtrlogbuf->ckpt_offset;
-	// 3. remove stale log data
-	memset(gb_pm_mmap + PMEM_MMAP_MTR_FIL_HDR_SIZE, 0x00, cur_offset - PMEM_MMAP_MTR_FIL_HDR_SIZE);
-	//fprintf(stderr, "cur_offset: %lu ckpt_offset: %lu\n", cur_offset, ckpt_offset);
-	mmap_mtrlogbuf->cur_offset = PMEM_MMAP_MTR_FIL_HDR_SIZE;
-	mmap_mtrlogbuf->prev_offset = PMEM_MMAP_MTR_FIL_HDR_SIZE;
-	// really needed?
-	pm_mmap_write_logfile_header_size(PMEM_MMAP_MTR_FIL_HDR_SIZE);
-*/
 
+// HOT DEBUG //
+void pmem_copy_page(unsigned char* frame, uint64_t space, uint64_t page_no) {
+  pthread_mutex_lock(&mmap_mtrlogbuf->mtrMutex);
+  uint64_t pmem_page_offset = pmem_nc_page_offset_list.front();
+  pmem_nc_page_offset_map[std::make_pair(space, page_no)] = pmem_page_offset;
+  pmem_nc_page_offset_list.pop();
+  pthread_mutex_unlock(&mmap_mtrlogbuf->mtrMutex);
+
+  memcpy(gb_pm_mmap + 10*1024*1024*1024UL + pmem_page_offset, frame, UNIV_PAGE_SIZE);
+  flush_cache(gb_pm_mmap + 10*1024*1024*1024UL + pmem_page_offset, UNIV_PAGE_SIZE);
 }
 
+void pmem_evict_page(uint64_t space, uint64_t page_no) {
 
-// compare mtr log with given space_id, and page_no
-// offset is start offset of "log body" of mtr log
-bool pm_mmap_mtrlogbuf_identify(size_t offset, size_t n, ulint space, ulint page_no) {
-	// mtr log structure: [type(1)] [space_id(4)] [page_no(4)]
-	// <WARNING> mach_write_compressed used when writing space_id and page_no
-	// + 1 means jump over MTR_LOG_TYPE
-	ulint cur_space, cur_page;
-	const byte *ptr = gb_pm_mmap+offset;
-	const byte *end_ptr = gb_pm_mmap+offset+n;
-	ptr++;
-
-	cur_space = mach_parse_compressed(&ptr, end_ptr);
-	if (ptr != NULL) {
-		cur_page = mach_parse_compressed(&ptr, end_ptr);
-	}
-
-	//fprintf(stderr, "[mtr identify] space(%lu) : %lu pange_no(%lu) : %lu\n", space, cur_space, page_no, cur_page);
-	return ((cur_space == space) && (cur_page == page_no));
+  uint64_t offset = -1;
+  std::map<std::pair<uint64_t,uint64_t>,uint64_t>::iterator iter;
+  pthread_mutex_lock(&mmap_mtrlogbuf->mtrMutex);
+  iter = pmem_nc_page_offset_map.find(std::make_pair(space, page_no));
+  if (iter != pmem_nc_page_offset_map.end()) {
+    offset = iter->second;
+  } else {
+    ib::error() << "error : " << space << ":" << page_no;
+  }
+  pmem_nc_page_offset_list.push(offset);
+  pthread_mutex_unlock(&mmap_mtrlogbuf->mtrMutex);
 }
-
-void pm_mmap_mtrlogbuf_unset_recv_flag(size_t offset) {
-	memcpy(gb_pm_mmap + offset, false, sizeof(bool));
-	// need flush? No we can recover by using commit log
-}
-
-void pm_mmap_mtrlogbuf_commit_v1(ulint space, ulint page_no) {
-	// 1. start to inspect mtr log from latest ckpt_offset
-	// 2. check specific mtr log with spaced_id and page_no
-	// 2.1 (yes) check need_recv is set goto 3.1
-	// 2.2 (no) check need recv is set goto 3.2
-	// 3.1. update ckpt_offset to current offset
-	// 4. move to next mtr log (until cur_offset)
-	
-	if (mmap_mtrlogbuf == NULL) return;
-
-	size_t offset = mmap_mtrlogbuf->ckpt_offset;
-	while (offset != mmap_mtrlogbuf->cur_offset) {
-
-		fprintf(stderr, "offset : %lu cur_offset: %lu\n", offset, mmap_mtrlogbuf->cur_offset);
-		PMEM_MMAP_MTRLOG_HDR mmap_mtr_hdr;
-		memcpy(&mmap_mtr_hdr, gb_pm_mmap + offset, (size_t) PMEM_MMAP_MTRLOG_HDR_SIZE);
-		uint64_t data_len = mmap_mtr_hdr.len;
-		bool need_recv = mmap_mtr_hdr.need_recv;
-	
-		fprintf(stderr, "[mtr info] data_len : %lu lsn: %lu need_recv : %d\n", 
-						data_len, mmap_mtr_hdr.lsn, need_recv);
-	
-		// move next
-		uint64_t org_offset = offset;
-		offset += PMEM_MMAP_MTRLOG_HDR_SIZE;
-
-		if (pm_mmap_mtrlogbuf_identify(offset, data_len, space, page_no)) {
-			pm_mmap_mtrlogbuf_unset_recv_flag(org_offset);
-		}
-		if (need_recv) {
-			mmap_mtrlogbuf->ckpt_offset = org_offset;
-		}
-		offset += data_len;
-	}
-	fprintf(stderr, "break out ! ckpt_offset: %lu\n", mmap_mtrlogbuf->ckpt_offset);
-}
-

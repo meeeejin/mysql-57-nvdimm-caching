@@ -3924,23 +3924,19 @@ btr_cur_update_in_place(
 	}
 
 #ifdef UNIV_NVDIMM_CACHE
+    // (jhpark): add REDO log for NC pages 
+    btr_cur_update_in_place_log(flags, rec, index, update,
+                        trx_id, roll_ptr, mtr);
+    /*
     nvm_block = btr_cur_get_block(cursor);
     nvm_bpage = &(nvm_block->page);
-
     if (nvm_bpage->cached_in_nvdimm) {
-        // skip generating REDO logs for NVM-resident pages
-				// write NC page on NVDIMM
-				//pm_mmap_buf_write(nvm_bpage->size.physical(), (void*) ((buf_block_t*) nvm_bpage)->frame);
-				
-				// persist records
-				ulint cur_rec_size = rec_offs_size(offsets);
-                pm_mmap_mtrlogbuf_commit(nvm_block->frame, UNIV_PAGE_SIZE, nvm_bpage->id.space(), nvm_bpage->id.page_no());
- 
-				//pm_mmap_mtrlogbuf_commit(rec, cur_rec_size, nvm_bpage->id.space(), nvm_bpage->id.page_no());
+
     } else {
         btr_cur_update_in_place_log(flags, rec, index, update,
                         trx_id, roll_ptr, mtr);
     }
+    */
 #else
 	btr_cur_update_in_place_log(flags, rec, index, update,
 				    trx_id, roll_ptr, mtr);
@@ -4937,6 +4933,7 @@ btr_cur_del_mark_set_clust_rec(
 	row_upd_rec_sys_fields(rec, page_zip, index, offsets, trx, roll_ptr);
 
 #ifdef UNIV_NVDIMM_CACHE
+  /*
     if (is_nvm_page) {
     	// skip generating REDO logs for nvm-page
 			// Instead, write commit log in mtr log
@@ -4950,6 +4947,12 @@ btr_cur_del_mark_set_clust_rec(
         btr_cur_del_mark_set_clust_rec_log(rec, index, trx->id,
 					    roll_ptr, mtr);
     }
+   */
+
+  // (jhpark): add REDO log for NC pages
+  btr_cur_del_mark_set_clust_rec_log(rec, index, trx->id,
+      roll_ptr, mtr);
+
 #else
 	btr_cur_del_mark_set_clust_rec_log(rec, index, trx->id,
 					   roll_ptr, mtr);

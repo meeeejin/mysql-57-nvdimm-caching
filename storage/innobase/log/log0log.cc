@@ -57,6 +57,11 @@ Created 12/9/1995 Heikki Tuuri
 #include "sync0sync.h"
 #endif /* !UNIV_HOTBACKUP */
 
+#ifdef UNIV_NVDIMM_CACHE
+#include "pmem_mmap_obj.h"
+extern unsigned char* gb_pm_mmap;
+#endif
+
 /*
 General philosophy of InnoDB redo-logs:
 
@@ -149,7 +154,7 @@ log_buf_pool_get_oldest_modification(void)
 	if (!lsn) {
 
 		lsn = log_sys->lsn;
-	}
+	} 
 
 	return(lsn);
 }
@@ -428,8 +433,12 @@ part_loop:
 			- (log->buf_free % OS_FILE_LOG_BLOCK_SIZE)
 			- LOG_BLOCK_TRL_SIZE;
 	}
-
+#ifdef UNIV_NVDIMM_CACHE
+  ut_memcpy(log->buf + log->buf_free, str, len);
+  flush_cache(log->buf+log->buf_free, len);
+#else
 	ut_memcpy(log->buf + log->buf_free, str, len);
+#endif
 
 	str_len -= len;
 	str = str + len;
@@ -807,10 +816,17 @@ log_init(void)
 
 	log_sys->buf_size = LOG_BUFFER_SIZE;
 
+  /* nc-logging */
+#ifdef UNIV_NVDIMM_CACHE
+  log_sys->buf_ptr = static_cast<byte*>(gb_pm_mmap);
+  log_sys->buf = static_cast<byte*>(
+      ut_align(log_sys->buf_ptr, OS_FILE_LOG_BLOCK_SIZE));
+#else
 	log_sys->buf_ptr = static_cast<byte*>(
 		ut_zalloc_nokey(log_sys->buf_size * 2 + OS_FILE_LOG_BLOCK_SIZE));
 	log_sys->buf = static_cast<byte*>(
 		ut_align(log_sys->buf_ptr, OS_FILE_LOG_BLOCK_SIZE));
+#endif
 
 	log_sys->first_in_use = true;
 
@@ -1797,7 +1813,25 @@ log_checkpoint(
 	log_mutex_enter();
 
 	ut_ad(!recv_no_log_write);
-	oldest_lsn = log_buf_pool_get_oldest_modification();
+  oldest_lsn = log_buf_pool_get_oldest_modification();
+
+  // HOT DEBUG 2 //
+#ifdef UNIV_NVDIMM_CACHE
+  if (recovery_time == 0) {
+    end_time = getticks();
+    recovery_time = (unsigned)((end_time-start_time)/CPU_MHZ);
+    fprintf(stderr, "[INFO] !!! RECOVERY TIME !!! : %u msec\n", recovery_time);
+  }
+  lsn_t nvdimm_lsn = nvdimm_buf_pool_get_oldest_modification();
+  if (nvdimm_lsn !=0 
+      && nvdimm_lsn < oldest_lsn) {
+    ib::info() << "nvdimm_lsn: "
+      << nvdimm_lsn << " oldest_lsn: " << oldest_lsn
+      << " the gap: " << oldest_lsn - nvdimm_lsn;
+    oldest_lsn = nvdimm_lsn;
+  }
+#endif
+ 
 
 	/* Because log also contains headers and dummy log records,
 	log_buf_pool_get_oldest_modification() will return log_sys->lsn

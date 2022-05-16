@@ -100,6 +100,10 @@ number (FIL_PAGE_LSN) is in the future.  Initially FALSE, and set by
 recv_recovery_from_checkpoint_start(). */
 bool	recv_lsn_checks_on;
 
+#ifdef UNIV_NVDIMM_CACHE
+#include "pmem_mmap_obj.h"
+#endif
+
 /** If the following is TRUE, the buffer pool file pages must be invalidated
 after recovery and no ibuf operations are allowed; this becomes TRUE if
 the log record hash table becomes too full, and log records must be merged
@@ -2243,7 +2247,7 @@ recv_add_to_hash_table(
 			    recv_fold(space, page_no), recv_addr);
 		recv_sys->n_addrs++;
 		// debug
-#if 1
+#if 0
 		fprintf(stderr, "Inserting log rec for space %lu, page %lu\n",
 			space, page_no);
 #endif
@@ -2422,6 +2426,71 @@ recv_recover_page_func(
 
 	recv = UT_LIST_GET_FIRST(recv_addr->rec_list);
 
+  /* nc-logging */
+#ifdef UNIV_NVDIMM_CACHE
+    extern unsigned char* gb_pm_mmap;
+    bool nc_page_flag = false;
+    bool nc_corrupt_flag = false;
+    uint64_t cur_nc_page_lsn = -1;
+
+    uint64_t cur_nc_buf_offset = pm_mmap_recv_check_nc_buf(
+               block->page.id.space(), block->page.id.page_no());
+
+    if (cur_nc_buf_offset != -1) {
+      // (jhpark): now, we know this page reside in the NVDIMM buffer.
+      nc_page_flag = true;
+      unsigned char *nc_frame = reinterpret_cast<buf_block_t*>
+        ((gb_pm_mmap + (1*1024*1024*1024UL) + cur_nc_buf_offset))->frame;
+
+      uint64_t cur_disk_page_lsn = mach_read_from_8(block->frame + FIL_PAGE_LSN);
+      cur_nc_page_lsn = mach_read_from_8(nc_frame+FIL_PAGE_LSN);
+
+      // check nc buffer page corruption or not
+      if (buf_page_is_corrupted(true
+            , nc_frame
+            , block->page.size
+            , fsp_is_checksum_disabled(block->page.id.space()))) {
+        nc_corrupt_flag = true;
+      }
+
+#ifdef UNIV_DEBUG
+      ib::info << "(recovery) offset: "
+        << cur_nc_buf_offset
+        << " current page is NC page and LSN: "
+        << cur_nc_page_lsn
+        << " disk lsn : " << cur_disk_page_lsn
+        << " corrupted? : " << nc_corrupt_flag;
+#endif
+
+      // recover from NC buffer
+      if (!nc_corrupt_flag || cur_disk_page_lsn == 0) {
+        memcpy(block->frame, nc_frame, UNIV_PAGE_SIZE);
+        page_lsn = cur_nc_page_lsn;
+        end_lsn = recv->start_lsn + recv->len;
+        mach_write_to_8(FIL_PAGE_LSN + (block->frame), end_lsn);
+        mach_write_to_8(UNIV_PAGE_SIZE
+          - FIL_PAGE_END_LSN_OLD_CHKSUM
+          + (block->frame), end_lsn);
+        goto skip_redo;
+      } else {
+        uint64_t cur_nc_page_offset = pm_mmap_recv_check_nc_buf(
+               block->page.id.space(), block->page.id.page_no());
+        if (cur_nc_page_offset != -1) {
+
+        memcpy(block->frame, nc_frame, UNIV_PAGE_SIZE);
+        page_lsn = cur_nc_page_lsn;
+        end_lsn = recv->start_lsn + recv->len;
+        mach_write_to_8(FIL_PAGE_LSN + (block->frame), end_lsn);
+        mach_write_to_8(UNIV_PAGE_SIZE
+          - FIL_PAGE_END_LSN_OLD_CHKSUM
+          + (block->frame), end_lsn);
+        goto skip_redo;        
+        } 
+      }
+
+    } // end-of-if 
+#endif
+
 	while (recv) {
 		end_lsn = recv->end_lsn;
 
@@ -2517,7 +2586,11 @@ recv_recover_page_func(
 		}
 
 		recv = UT_LIST_GET_NEXT(rec_list, recv);
-	}
+	} // end-of-while (recv)
+
+#ifdef UNIV_NVDIMM_CACHE
+skip_redo:
+#endif
 
 #ifdef UNIV_ZIP_DEBUG
 	if (fil_page_index_page_check(page)) {
@@ -3724,7 +3797,7 @@ recv_scan_log_recs(
 				= log_block_get_checkpoint_no(log_block);
 		}
 
-		if (data_len < OS_FILE_LOG_BLOCK_SIZE) {
+		if (data_len < OS_FILE_LOG_BLOCK_SIZE){
 			/* Log data for this group ends here */
 			finished = true;
 			break;
@@ -4075,6 +4148,20 @@ recv_recovery_from_checkpoint_start(
 	checkpoint_lsn = mach_read_from_8(buf + LOG_CHECKPOINT_LSN);
 	checkpoint_no = mach_read_from_8(buf + LOG_CHECKPOINT_NO);
 
+#ifdef UNIV_NVDIMM_CACHE
+  ib::info() << "Reocvery start from this checkpoint_lsn: " << checkpoint_lsn;
+  // HOT DEBUG
+ /* 
+  extern unsigned char* gb_pm_mmap;
+  if (is_pmem_recv) {
+    uint64_t cur_pmem_lsn = 0;
+    memcpy(&cur_pmem_lsn, gb_pm_mmap+6*1024*1024*1024UL ,sizeof(uint64_t));
+    checkpoint_lsn = cur_pmem_lsn;
+    ib::info() << "Reocvery start from this checkpoint_lsn (recv): " << checkpoint_lsn;
+  }
+ */
+#endif
+ 
 	/* Read the first log file header to print a note if this is
 	a recovery from a restored InnoDB Hot Backup */
 
@@ -4130,7 +4217,24 @@ recv_recovery_from_checkpoint_start(
 	group = UT_LIST_GET_FIRST(log_sys->log_groups);
 
 	ut_ad(recv_sys->n_addrs == 0);
+  // HOT DEBUG
+#ifdef UNIV_NVDIMM_CACHE
+  if (is_pmem_recv) {
+/*
+  extern unsigned char* gb_pm_mmap;
+  uint64_t cur_pmem_lsn = 0;
+  memcpy(&cur_pmem_lsn, gb_pm_mmap+6*1024*1024*1024UL ,sizeof(uint64_t));
+  contiguous_lsn = cur_pmem_lsn;
+  ib::info() << "log chopping we use this lsn for congiguous_lns : " << contiguous_lsn;
+*/  
+    contiguous_lsn = checkpoint_lsn;
+  } else {
+    contiguous_lsn = checkpoint_lsn;
+  }
+#else
 	contiguous_lsn = checkpoint_lsn;
+#endif
+
 	switch (group->format) {
 	case 0:
 		log_mutex_exit();
@@ -4148,7 +4252,6 @@ recv_recovery_from_checkpoint_start(
 	the hash table. */
 	rescan = recv_group_scan_log_recs(group, &contiguous_lsn, false);
 
-
 	if ((recv_sys->found_corrupt_log && !srv_force_recovery)
 	    || recv_sys->found_corrupt_fs) {
 		log_mutex_exit();
@@ -4156,6 +4259,9 @@ recv_recovery_from_checkpoint_start(
 	}
 
 	if (recv_sys->mlog_checkpoint_lsn == 0) {
+#ifdef UNIV_NVDIMM_CACHE
+    goto skip_2;
+#endif
 		if (!srv_read_only_mode
 		    && group->scanned_lsn != checkpoint_lsn) {
 			ib::error() << "Ignoring the redo log due to missing"
@@ -4170,7 +4276,8 @@ recv_recovery_from_checkpoint_start(
 
 		group->scanned_lsn = checkpoint_lsn;
 		rescan = false;
-	}
+  }
+
 
 	/* NOTE: we always do a 'recovery' at startup, but only if
 	there is something wrong we will print a message to the
@@ -4242,6 +4349,7 @@ recv_recovery_from_checkpoint_start(
 			" database is now corrupt!";
 	}
 
+
 	if (recv_sys->recovered_lsn < checkpoint_lsn) {
 		log_mutex_exit();
 
@@ -4252,6 +4360,8 @@ recv_recovery_from_checkpoint_start(
 
 		return(DB_ERROR);
 	}
+
+skip_2:
 
 	/* Synchronize the uncorrupted log groups to the most up-to-date log
 	group; we also copy checkpoint info to groups */

@@ -459,6 +459,10 @@ UNIV_INLINE
 ulint
 buf_pool_get_n_pages(void);
 /*=======================*/
+// HOT DEBUG
+lsn_t
+nvdimm_buf_pool_get_oldest_modification(void);
+
 /********************************************************************//**
 Gets the smallest oldest_modification lsn for any page in the pool. Returns
 zero if all modified pages have been flushed to disk.

@@ -253,6 +253,8 @@ ulong srv_nvdimm_buf_pool_instances = 1;
 ulong srv_nvdimm_pc_threshold_pct = 2;
 /** NVDIMM-aware file resident directory */
 char* srv_nvdimm_home_dir = NULL;
+/** NVDIMM DWB enable */
+my_bool srv_use_nvdimm_dwb = FALSE;
 #endif /* UNIV_NVDIMM_CACHE */
 
 /** Requested size in bytes */

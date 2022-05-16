@@ -320,6 +320,8 @@ extern ulong srv_nvdimm_buf_pool_instances;
 extern ulong srv_nvdimm_pc_threshold_pct;
 /** NVDIMM-aware file resident directory */
 extern char* srv_nvdimm_home_dir;
+/** NVDIMM DWB enable */
+extern my_bool srv_use_nvdimm_dwb;
 #endif /* UNIV_NVDIMM_CACHE */
 
 /** Requested size in bytes */

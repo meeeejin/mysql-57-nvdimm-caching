@@ -730,6 +730,16 @@ buf_load()
 	buf_load_status(STATUS_INFO,
 			"Buffer pool(s) load completed at %s", now);
 
+
+  // RECOVERY
+  /*
+#ifdef UNIV_NVDIMM_CACHE
+   end_time = getticks();
+   recovery_time = (unsigned)((end_time-start_time)/CPU_MHZ);
+   fprintf(stderr, "[INFO] !!! RECOVERY TIME !!! : %u msec\n", recovery_time);
+#endif
+  */
+
 	/* Make sure that estimated = completed when we end. */
 	mysql_stage_set_work_completed(pfs_stage_progress, dump_n);
 	/* End the stage progress event. */

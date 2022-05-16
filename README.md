@@ -55,6 +55,7 @@ $ ./build.sh --origin
 | innodb_nvdimm_buffer_pool_instances | The number of regions that the NVDIMM cache is divided into. The default value is 1. |
 | innodb_nvdimm_pc_threshold_pct      | Wakeup the NVDIMM page cleaner when this % of free pages remaining. The default value is 5. |
 | innodb_nvdimm_home_dir				      | NVDIMM-aware files resident directory |
+| innodb_use_nvdimm_dwb				        | Specifies whether to use NVDIMM dwb. **true** or **false**. |
 
 For example:
 

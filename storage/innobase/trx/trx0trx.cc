@@ -784,10 +784,7 @@ trx_resurrect_table_locks(
 				trx->mod_tables.insert(table);
 			}
 			lock_table_ix_resurrect(table, trx);
-      
-      // debugging
-      fprintf(stderr, "ib_trx resurrect %d table %s IX lock from %s undo", trx_get_id_for_print(trx), table->name.m_name, undo == undo_ptr->insert_undo ? "insert" : "update");
-      
+       
 			DBUG_PRINT("ib_trx",
 				   ("resurrect" TRX_ID_FMT
 				    "  table '%s' IX lock from %s undo",
